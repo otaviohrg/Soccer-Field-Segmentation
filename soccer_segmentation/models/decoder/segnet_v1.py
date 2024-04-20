@@ -88,21 +88,6 @@ class SegNet(nn.Module):
         x = self.ConvDe11(x)
 
         x = F.softmax(x, dim=1)
-
-        print(x4.size())
-        print(ind4.size())
-
-        print(x3.size())
-        print(ind3.size())
-
-        print(x2.size())
-        print(ind2.size())
-
-        print(x1.size())
-        print(ind1.size())
-
-        print(x0.size())
-        print(ind0.size())
         return x
 
 
