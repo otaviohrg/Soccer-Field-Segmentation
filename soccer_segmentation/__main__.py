@@ -1,6 +1,6 @@
 from .train import *
-from .test import *
-from .convert_models import convert
+#from .test import *
+#from .convert_models import convert
 
 if __name__ == '__main__':
-    run()
+    train()
