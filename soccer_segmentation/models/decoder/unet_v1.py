@@ -53,6 +53,12 @@ class UNet(nn.Module):
         x3 = inputs[3]
         x4 = inputs[4]
 
+        print(x0.shape)
+        print(x1.shape)
+        print(x2.shape)
+        print(x3.shape)
+        print(x4.shape)
+
         up_0 = self.bottle_neck(x4)
 
         up_1 = self.up_convolution_1(up_0, x3)

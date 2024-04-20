@@ -4,6 +4,8 @@ from soccer_segmentation.models.VGGUnet import *
 from soccer_segmentation.models.ResNetUnet import *
 from soccer_segmentation.models.MobileNetSegNet import *
 from soccer_segmentation.models.MobileNetUnet import *
+from soccer_segmentation.models.DefaultSegNet import *
+from soccer_segmentation.models.DefaultUNet import *
 from soccer_segmentation.supported_models import supported_encoders, supported_decoders
 
 
@@ -62,6 +64,10 @@ def create_model(encoder, decoder, num_classes, train_encoder=False):
         model = MobileNetV3SmallUNet(num_classes=num_classes, train_encoder=train_encoder)
     elif model_name == 'mobilenetv3largeunet':
         model = MobileNetV3LargeUNet(num_classes=num_classes, train_encoder=train_encoder)
+    elif model_name == 'defaultsegnet':
+        model = DefaultSegNet(num_classes=num_classes, train_encoder=train_encoder)
+    elif model_name == 'defaultunet':
+        model = DefaultUNet(num_classes=num_classes, train_encoder=train_encoder)
 
     else:
         raise Exception

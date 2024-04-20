@@ -10,6 +10,8 @@ supported_encoders = {
     'vgg19',
     'mobilenetv3small',
     'mobilenetv3large',
+    'default',
+    #'transformer'
 }
 
 supported_decoders = {
