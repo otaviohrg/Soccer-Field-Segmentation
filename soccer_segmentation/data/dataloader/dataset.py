@@ -5,15 +5,18 @@ import numpy as np
 from PIL import Image
 
 from torch.utils.data import Dataset
-import torchvision.transforms as transforms
+import torchvision
+
+torchvision.disable_beta_transforms_warning()
+from torchvision.transforms import v2
 
 
 class DatasetSegmentation(Dataset):
-    def __init__(self, folder_path, transform=None):
+    def __init__(self, folder_path, small_mask=False):
         super(DatasetSegmentation, self).__init__()
-        self.transform = transform
         self.img_files = glob.glob(os.path.join(folder_path, 'images', '*'))
         self.mask_files = []
+        self.small_mask = small_mask
         for img_path in self.img_files:
             self.mask_files.append(os.path.join(folder_path,
                                                 'segmentations',
@@ -25,25 +28,40 @@ class DatasetSegmentation(Dataset):
         data = Image.open(os.path.join(img_path)).convert("RGB")
         mask = Image.open(os.path.join(mask_path)).convert("L")
 
-        transform_data = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
-            transforms.ToPILImage()
+        i, j, h, w = v2.RandomCrop.get_params(data, output_size=(224, 224))
+
+        randomCrop = lambda x: v2.functional.crop(x, i, j, h, w)
+
+        transform = v2.Compose(
+            [
+                v2.Resize((356, 356), antialias=True),
+                v2.Lambda(randomCrop),
+                v2.ToImageTensor(),
+                v2.ConvertImageDtype(),
+            ]
+        )
+
+        transform_data = v2.Compose([
+            transform,
+            v2.ToDtype(torch.float32),
+            v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            v2.ToPILImage()
         ])
 
-        transform_mask = transforms.Compose([
-            transforms.Resize((128, 128)),
+        transform_mask = v2.Compose([
+            transform,
         ])
 
-        data = transform_data(data)
-
-        if self.transform is not None:
-            data = self.transform(data)
-            mask = self.transform(mask)
+        if self.small_mask:
+            transform_mask = v2.Compose([
+                transform_mask,
+                v2.Resize((112, 112), antialias=True),
+            ])
 
         mask = transform_mask(mask)
+        data = transform_data(data)
 
-        data = np.array(data)
+        data = np.array(data).transpose(2, 0, 1)
         mask = np.array(mask)
 
         mask[mask <= 0.1] = 0
