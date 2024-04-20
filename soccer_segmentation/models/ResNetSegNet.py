@@ -1,6 +1,6 @@
 import torch.nn as nn
 from soccer_segmentation.models.decoder.segnet_v2 import SegNet
-from soccer_segmentation.models.encoder.resnet18 import ResNet18
+from soccer_segmentation.models.encoder.resnet import ResNet18
 
 
 class ResNet18SegNet(nn.Module):
@@ -14,6 +14,9 @@ class ResNet18SegNet(nn.Module):
         x = self.encoder(inputs)
         x = self.decoder(x)
         return x
+
+    def unfreeze(self):
+        self.encoder.unfreeze()
 
 
 if __name__ == "__main__":
