@@ -19,7 +19,10 @@ class DoubleConv(nn.Module):
 class UpSample(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.up = nn.ConvTranspose2d(in_channels, in_channels//2, kernel_size=2, stride=2)
+        if in_channels != out_channels:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels//2, kernel_size=2, stride=2)
+        else:
+            self.up = self.up = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
         self.conv = DoubleConv(in_channels, out_channels)
 
     def forward(self, x1, x2):
@@ -33,6 +36,7 @@ class UNet(nn.Module):
         super().__init__()
 
         self.bottle_neck = DoubleConv(512, 1024)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.up_convolution_1 = UpSample(1024, 512)
         self.up_convolution_2 = UpSample(512, 256)
@@ -50,10 +54,10 @@ class UNet(nn.Module):
         x4 = inputs[4]
 
         up_0 = self.bottle_neck(x4)
+
         up_1 = self.up_convolution_1(up_0, x3)
         up_2 = self.up_convolution_2(up_1, x2)
         up_3 = self.up_convolution_3(up_2, x1)
         up_4 = self.up_convolution_4(up_3, x0)
-
         out = self.out(up_4)
         return out
