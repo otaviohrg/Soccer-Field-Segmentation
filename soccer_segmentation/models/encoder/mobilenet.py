@@ -16,20 +16,26 @@ class MobileNetV3Small(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = True
 
-    #def forward(self, images):
-    #    x0 = x = self.model.relu(self.model.bn1(self.model.conv1(images)))
-    #    x1 = x = self.model.layer1(self.model.maxpool(x))
-    #    x2 = x = self.model.layer2(x)
-    #    x3 = x = self.model.layer3(x)
-    #    x4 = self.model.layer4(x)
-
-    #    return [x0, x1, x2, x3, x4]
+    def forward(self, images):
+        results = []
+        x = images
+        for ii, m in enumerate(self.model.features):
+            if ii in {2, 8, 9}:
+                for li, l in enumerate(m.block):
+                    x = l(x)
+                    if li == 0:
+                        results.append(x)
+            else:
+                x = m(x)
+                if ii == 12 or ii == 0:
+                    results.append(x)
+        return results
 
 
 class MobileNetV3Large(nn.Module):
     def __init__(self, train_cnn=False):
         super(MobileNetV3Large, self).__init__()
-        self.model = mobilenet_v3_small(weights='IMAGENET1K_V1')
+        self.model = mobilenet_v3_large(weights='IMAGENET1K_V1')
         if not train_cnn:
             self.freeze()
 
@@ -41,18 +47,22 @@ class MobileNetV3Large(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = True
 
-    #def forward(self, images):
-    #    x0 = x = self.model.relu(self.model.bn1(self.model.conv1(images)))
-    #    x1 = x = self.model.layer1(self.model.maxpool(x))
-    #    x2 = x = self.model.layer2(x)
-    #    x3 = x = self.model.layer3(x)
-    #    x4 = self.model.layer4(x)
-
-    #    return [x0, x1, x2, x3, x4]
-
-
+    def forward(self, images):
+        results = []
+        x = images
+        for ii, m in enumerate(self.model.features):
+            if ii in {5, 7, 11}:
+                for li, l in enumerate(m.block):
+                    x = l(x)
+                    if li == 0:
+                        results.append(x)
+            else:
+                x = m(x)
+                if ii == 16 or ii == 0:
+                    results.append(x)
+        return results
 
 
 if __name__ == "__main__":
-    model = MobileNetV3Small(train_cnn=True)
+    model = MobileNetV3Large(train_cnn=True)
     print(model.model)

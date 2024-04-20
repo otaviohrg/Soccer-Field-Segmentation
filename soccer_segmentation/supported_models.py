@@ -8,6 +8,8 @@ supported_encoders = {
     'vgg13',
     'vgg16',
     'vgg19',
+    'mobilenetv3small',
+    'mobilenetv3large',
 }
 
 supported_decoders = {
