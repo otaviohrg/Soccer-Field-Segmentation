@@ -46,6 +46,7 @@ class DefaultUNet(nn.Module):
     def __init__(self, num_classes, train_encoder=False):
         super().__init__()
         self.name = "DefaultUNet"
+        self.small_mask = False
 
         self.down_convolution_1 = DownSample(3, 64)
         self.down_convolution_2 = DownSample(64, 128)

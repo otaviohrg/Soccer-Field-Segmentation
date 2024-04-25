@@ -19,6 +19,7 @@ class DefaultSegNet(nn.Module):
         #Pooling indices are stored for Upsampling in DECODING layers
 
         self.name = "DefaultSegNet"
+        self.small_mask = False
         self.in_chn = 3
         self.out_chn = num_classes
 

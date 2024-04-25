@@ -9,6 +9,7 @@ class MobileNetV3SmallUNet(nn.Module):
         self.encoder = MobileNetV3Small(train_cnn=train_encoder)
         self.decoder = UNet_v4(num_classes)
         self.name = "MobileNetV3SmallUNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -24,7 +25,8 @@ class MobileNetV3LargeUNet(nn.Module):
         super(MobileNetV3LargeUNet, self).__init__()
         self.encoder = MobileNetV3Large(train_cnn=train_encoder)
         self.decoder = UNet_v5(num_classes)
-        self.name = "MobileNetV3SmallUNet"
+        self.name = "MobileNetV3LargeUNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)

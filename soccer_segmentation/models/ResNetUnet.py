@@ -9,6 +9,7 @@ class ResNet18UNet(nn.Module):
         self.encoder = ResNet18(train_cnn=train_encoder)
         self.decoder = UNet_v2(num_classes)
         self.name = "ResNet18UNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -25,6 +26,7 @@ class ResNet34UNet(nn.Module):
         self.encoder = ResNet34(train_cnn=train_encoder)
         self.decoder = UNet_v2(num_classes)
         self.name = "ResNet34UNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -41,6 +43,7 @@ class ResNet50UNet(nn.Module):
         self.encoder = ResNet50(train_cnn=train_encoder)
         self.decoder = UNet_v3(num_classes)
         self.name = "ResNet50UNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -57,6 +60,7 @@ class ResNet101UNet(nn.Module):
         self.encoder = ResNet101(train_cnn=train_encoder)
         self.decoder = UNet_v3(num_classes)
         self.name = "ResNet101UNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -73,6 +77,7 @@ class ResNet152UNet(nn.Module):
         self.encoder = ResNet152(train_cnn=train_encoder)
         self.decoder = UNet_v3(num_classes)
         self.name = "ResNet152UNet"
+        self.small_mask = True
 
     def forward(self, inputs):
         x = self.encoder(inputs)

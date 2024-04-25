@@ -138,19 +138,27 @@ def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     load_model = False
     save_model = True
-    small_mask = True
 
     # Hyperparameters
     num_classes = 3
     learning_rate = 3e-4
-    num_epochs_frozen = 10
-    num_epochs_unfrozen = 1000
+    num_epochs_frozen = 1
+    num_epochs_unfrozen = 1
     batch_size = 32
+
+    # Initialize
+    model = create_model(encoder, decoder, num_classes, train_encoder=False)
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    if load_model:
+        step = load_checkpoint(model.name + ".pth.tar", model, optimizer)
 
     # Create Datasets
     train_dataset = get_dataset(
         folder_path=config["dataset_path"]["train"],
-        small_mask=small_mask,
+        small_mask=model.small_mask,
     )
 
     # Tensorboard
@@ -161,15 +169,6 @@ def train():
     val_loader = get_loader(val_dataset.dataset, train_idx=val_dataset.indices, batch_size=batch_size)
 
     step = 0
-
-    # Initialize
-    model = create_model(encoder, decoder, num_classes, train_encoder=False)
-    model = model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    if load_model:
-        step = load_checkpoint(model.name + ".pth.tar", model, optimizer)
 
     print(f"Model: {model.name}")
     print("Starting Transfer Learning Step...")

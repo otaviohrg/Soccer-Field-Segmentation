@@ -4,11 +4,12 @@ from soccer_segmentation.models.encoder.vgg import VGG11, VGG13, VGG16, VGG19
 
 
 class VGG11UNet(nn.Module):
-    def __init__(self, num_classes, name="VGG11Unet", train_encoder=False):
+    def __init__(self, num_classes, train_encoder=False):
         super(VGG11UNet, self).__init__()
         self.encoder = VGG11(train_cnn=train_encoder)
         self.decoder = UNet(num_classes)
-        self.name = name
+        self.name = "VGG11Unet"
+        self.small_mask = False
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -20,11 +21,12 @@ class VGG11UNet(nn.Module):
 
 
 class VGG13UNet(nn.Module):
-    def __init__(self, num_classes, name="VGG13Unet", train_encoder=False):
+    def __init__(self, num_classes, train_encoder=False):
         super(VGG13UNet, self).__init__()
         self.encoder = VGG13(train_cnn=train_encoder)
         self.decoder = UNet(num_classes)
-        self.name = name
+        self.name = "VGG13Unet"
+        self.small_mask = False
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -36,11 +38,12 @@ class VGG13UNet(nn.Module):
 
 
 class VGG16UNet(nn.Module):
-    def __init__(self, num_classes, name="VGG16Unet", train_encoder=False):
+    def __init__(self, num_classes, train_encoder=False):
         super(VGG16UNet, self).__init__()
         self.encoder = VGG16(train_cnn=train_encoder)
         self.decoder = UNet(num_classes)
-        self.name = name
+        self.name = "VGG16Unet"
+        self.small_mask = False
 
     def forward(self, inputs):
         x = self.encoder(inputs)
@@ -52,11 +55,12 @@ class VGG16UNet(nn.Module):
 
 
 class VGG19UNet(nn.Module):
-    def __init__(self, num_classes, name="VGG19Unet", train_encoder=False):
+    def __init__(self, num_classes, train_encoder=False):
         super(VGG19UNet, self).__init__()
         self.encoder = VGG19(train_cnn=train_encoder)
         self.decoder = UNet(num_classes)
-        self.name = name
+        self.name = "VGG19Unet"
+        self.small_mask = False
 
     def forward(self, inputs):
         x = self.encoder(inputs)
