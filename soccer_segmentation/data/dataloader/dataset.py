@@ -1,7 +1,6 @@
-import os
 import torch
 import glob
-import numpy as np
+import os
 from PIL import Image
 
 from torch.utils.data import Dataset
@@ -15,61 +14,49 @@ class DatasetSegmentation(Dataset):
     def __init__(self, folder_path, small_mask=False):
         super(DatasetSegmentation, self).__init__()
         self.img_files = glob.glob(os.path.join(folder_path, 'images', '*'))
-        self.mask_files = []
+        self.mask_files = [
+            os.path.join(folder_path, 'segmentations',
+                         ".".join(os.path.basename(p).split(".")[:-1]) + ".png")
+            for p in self.img_files
+        ]
         self.small_mask = small_mask
-        for img_path in self.img_files:
-            self.mask_files.append(os.path.join(folder_path,
-                                                'segmentations',
-                                                ".".join(os.path.basename(img_path).split(".")[:-1]) + ".png"))
 
     def __getitem__(self, index):
-        img_path = self.img_files[index]
-        mask_path = self.mask_files[index]
-        data = Image.open(os.path.join(img_path)).convert("RGB")
-        mask = Image.open(os.path.join(mask_path)).convert("L")
+        data = Image.open(self.img_files[index]).convert("RGB")
+        mask = Image.open(self.mask_files[index]).convert("L")
 
         i, j, h, w = v2.RandomCrop.get_params(data, output_size=(224, 224))
+        crop = lambda x: v2.functional.crop(x, i, j, h, w)
 
-        randomCrop = lambda x: v2.functional.crop(x, i, j, h, w)
+        spatial = v2.Compose([
+            v2.Resize((356, 356), antialias=True),
+            v2.Lambda(crop),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+        ])
 
-        transform = v2.Compose(
-            [
-                v2.Resize((356, 356), antialias=True),
-                v2.Lambda(randomCrop),
-                v2.ToImageTensor(),
-                v2.ConvertImageDtype(),
-            ]
-        )
-
-        transform_data = v2.Compose([
-            transform,
-            v2.ToDtype(torch.float32),
+        data = v2.Compose([
+            spatial,
             v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            v2.ToPILImage()
-        ])
+        ])(data)  # (3, 224, 224) float32, ImageNet-normalised
 
-        transform_mask = v2.Compose([
-            transform,
-        ])
+        mask = spatial(mask)  # (1, 224, 224) float32 in [0, 1]
 
         if self.small_mask:
-            transform_mask = v2.Compose([
-                transform_mask,
-                v2.Resize((112, 112), antialias=True),
-            ])
+            mask = v2.functional.resize(mask, (112, 112), antialias=True)
 
-        mask = transform_mask(mask)
-        data = transform_data(data)
-
-        data = np.array(data).transpose(2, 0, 1)
-        mask = np.array(mask)
-
+        # Map grayscale intensity to class indices:
+        #   ~0   (background) → 0
+        #   ~0.5 (field)      → 2
+        #   ~1.0 (lines)      → 1
+        mask = mask.squeeze(0).numpy()
         mask[mask <= 0.1] = 0
         mask[mask >= 0.9] = 0.1
         mask[mask > 0.1] = 0.2
         mask *= 10
+        mask = torch.from_numpy(mask).long()
 
-        return torch.from_numpy(data).float(), torch.from_numpy(mask).long()
+        return data, mask.unsqueeze(0)
 
     def __len__(self):
         return len(self.img_files)

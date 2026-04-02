@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class DefaultSegNet(nn.Module):
 
-    def __init__(self, num_classes=3, BN_momentum=0.5, train_encoder=True):
+    def __init__(self, num_classes=3, BN_momentum=0.5):
         super(DefaultSegNet, self).__init__()
 
         #SegNet Architecture
@@ -158,8 +158,6 @@ class DefaultSegNet(nn.Module):
         x = self.MaxDe(x, ind1)
         x = F.relu(self.BNDe12(self.ConvDe12(x)))
         x = self.ConvDe11(x)
-
-        x = F.softmax(x, dim=1)
 
         return x
 

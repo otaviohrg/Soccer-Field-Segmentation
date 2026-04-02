@@ -1,75 +1,89 @@
-from soccer_segmentation.models.VGGSegNet import *
-from soccer_segmentation.models.ResNetSegNet import *
-from soccer_segmentation.models.VGGUnet import *
-from soccer_segmentation.models.ResNetUnet import *
-from soccer_segmentation.models.MobileNetSegNet import *
-from soccer_segmentation.models.MobileNetUnet import *
-from soccer_segmentation.models.DefaultSegNet import *
-from soccer_segmentation.models.DefaultUNet import *
+import segmentation_models_pytorch as smp
+
+from soccer_segmentation.models.decoder.segnet import SegNetDecoder
+from soccer_segmentation.models.encoder.mobilenet import MobileNetEncoder
+from soccer_segmentation.models.encoder.resnet import ResNetEncoder
+from soccer_segmentation.models.encoder.vgg import VGGEncoder
+from soccer_segmentation.models.DefaultSegNet import DefaultSegNet
+from soccer_segmentation.models.DefaultUNet import DefaultUNet
+from soccer_segmentation.models.encoder_decoder import EncoderDecoderModel, SMPModel
 from soccer_segmentation.supported_models import supported_encoders, supported_decoders
+
+# SegNet decoder channel configs: 5 (in_ch, out_ch) tuples, deepest stage first.
+# Each entry drives the conv widths inside SegNetDecoder.
+_VGG_SEGNET          = [(512, 512), (512, 256), (256, 128), (128, 64),    (64, 64)]
+_RESNET_SM_SEGNET    = [(512, 256), (256, 128), (128, 64),  (64, 64),     (64, 64)]
+_RESNET_LG_SEGNET    = [(2048, 1024), (1024, 512), (512, 256), (256, 64), (64, 64)]
+_MOBILENET_SM_SEGNET = [(576, 288), (288, 144), (144, 72),  (72, 16),     (16, 16)]
+_MOBILENET_LG_SEGNET = [(960, 480), (480, 240), (240, 120), (120, 16),    (16, 16)]
+
+
+def _segnet(channels, **kwargs):
+    return lambda n: SegNetDecoder(channels, out_chn=n, **kwargs)
+
+
+_SEGNET_REGISTRY = {
+    # (encoder): (encoder_factory, decoder_factory, small_mask)
+    'resnet18':        (lambda tc: ResNetEncoder('resnet18',  tc), _segnet(_RESNET_SM_SEGNET),                       True),
+    'resnet34':        (lambda tc: ResNetEncoder('resnet34',  tc), _segnet(_RESNET_SM_SEGNET),                       True),
+    'resnet50':        (lambda tc: ResNetEncoder('resnet50',  tc), _segnet(_RESNET_LG_SEGNET),                       True),
+    'resnet101':       (lambda tc: ResNetEncoder('resnet101', tc), _segnet(_RESNET_LG_SEGNET),                       True),
+    'resnet152':       (lambda tc: ResNetEncoder('resnet152', tc), _segnet(_RESNET_LG_SEGNET),                       True),
+    'vgg11':           (lambda tc: VGGEncoder('vgg11', tc),        _segnet(_VGG_SEGNET),                             False),
+    'vgg13':           (lambda tc: VGGEncoder('vgg13', tc),        _segnet(_VGG_SEGNET),                             False),
+    'vgg16':           (lambda tc: VGGEncoder('vgg16', tc),        _segnet(_VGG_SEGNET),                             False),
+    'vgg19':           (lambda tc: VGGEncoder('vgg19', tc),        _segnet(_VGG_SEGNET),                             False),
+    'mobilenetv3small': (lambda tc: MobileNetEncoder('mobilenetv3small', tc), _segnet(_MOBILENET_SM_SEGNET, upsample_input=2), True),
+    'mobilenetv3large': (lambda tc: MobileNetEncoder('mobilenetv3large', tc), _segnet(_MOBILENET_LG_SEGNET, upsample_input=1), True),
+}
+
+# Mapping from our encoder names to SMP encoder names
+_SMP_ENCODER_NAMES = {
+    'resnet18':         'resnet18',
+    'resnet34':         'resnet34',
+    'resnet50':         'resnet50',
+    'resnet101':        'resnet101',
+    'resnet152':        'resnet152',
+    'vgg11':            'vgg11',
+    'vgg13':            'vgg13',
+    'vgg16':            'vgg16',
+    'vgg19':            'vgg19',
+    'mobilenetv3small': 'timm-mobilenetv3_small_100',
+    'mobilenetv3large': 'timm-mobilenetv3_large_100',
+}
+
+
+def _create_smp_unet(encoder, num_classes, train_encoder):
+    smp_encoder = _SMP_ENCODER_NAMES[encoder]
+    model = smp.Unet(
+        encoder_name=smp_encoder,
+        encoder_weights='imagenet',
+        in_channels=3,
+        classes=num_classes,
+        activation=None,
+    )
+    if not train_encoder:
+        for p in model.encoder.parameters():
+            p.requires_grad = False
+    return SMPModel(name=f"{encoder}unet", model=model)
 
 
 def create_model(encoder, decoder, num_classes, train_encoder=False):
-    assert encoder in supported_encoders, "Encoder not supported"
-    assert decoder in supported_decoders, "Decoder not supported"
+    assert encoder in supported_encoders, f"Unsupported encoder '{encoder}'. Choose from: {supported_encoders}"
+    assert decoder in supported_decoders, f"Unsupported decoder '{decoder}'. Choose from: {supported_decoders}"
 
-    model_name = encoder + decoder
-    model = None
+    if encoder == 'default':
+        if decoder == 'segnet':
+            return DefaultSegNet(num_classes=num_classes)
+        return DefaultUNet(num_classes=num_classes)
 
-    if model_name == 'resnet18segnet':
-        model = ResNet18SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet34segnet':
-        model = ResNet34SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet50segnet':
-        model = ResNet50SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet101segnet':
-        model = ResNet101SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet152segnet':
-        model = ResNet152SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg11segnet':
-        model = VGG11SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg13segnet':
-        model = VGG13SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg16segnet':
-        model = VGG16SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg19segnet':
-        model = VGG19SegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3smallsegnet':
-        model = MobileNetV3SmallSegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3largesegnet':
-        model = MobileNetV3LargeSegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg11unet':
-        model = VGG11UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg13unet':
-        model = VGG13UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg16unet':
-        model = VGG16UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'vgg19unet':
-        model = VGG19UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet18unet':
-        model = ResNet18UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet34unet':
-        model = ResNet34UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet50unet':
-        model = ResNet50UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet101unet':
-        model = ResNet101UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'resnet152unet':
-        model = ResNet152UNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3smallsegnet':
-        model = MobileNetV3SmallSegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3largesegnet':
-        model = MobileNetV3SmallSegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3smallunet':
-        model = MobileNetV3SmallUNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'mobilenetv3largeunet':
-        model = MobileNetV3LargeUNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'defaultsegnet':
-        model = DefaultSegNet(num_classes=num_classes, train_encoder=train_encoder)
-    elif model_name == 'defaultunet':
-        model = DefaultUNet(num_classes=num_classes, train_encoder=train_encoder)
+    if decoder == 'unet':
+        return _create_smp_unet(encoder, num_classes, train_encoder)
 
-    else:
-        raise Exception
-
-    return model
+    encoder_factory, decoder_factory, small_mask = _SEGNET_REGISTRY[encoder]
+    return EncoderDecoderModel(
+        name=f"{encoder}{decoder}",
+        encoder=encoder_factory(train_encoder),
+        decoder=decoder_factory(num_classes),
+        small_mask=small_mask,
+    )

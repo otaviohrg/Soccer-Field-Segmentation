@@ -43,7 +43,7 @@ class UpSample(nn.Module):
 
 
 class DefaultUNet(nn.Module):
-    def __init__(self, num_classes, train_encoder=False):
+    def __init__(self, num_classes):
         super().__init__()
         self.name = "DefaultUNet"
         self.small_mask = False

@@ -1,5 +1,15 @@
 dataset_path:
-  train: PATH_TO_TRAIN
-  test: PATH_TO_TEST
+  train: data/train
+  test: data/test
 
-checkpoint_path: PATH_TO_WEIGHTS
+checkpoint_path: checkpoints
+results_path: results.csv
+
+# Optional — defaults shown
+seed: 42
+num_classes: 3
+learning_rate: 3e-4
+batch_size: 32
+num_epochs_frozen: 10
+num_epochs_unfrozen: 10
+patience: 10
