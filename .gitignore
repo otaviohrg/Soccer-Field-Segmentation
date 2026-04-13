@@ -15,6 +15,7 @@ config.yml
 # Model checkpoints and training artifacts
 checkpoints/
 results.csv
+test_results.csv
 
 # Dataset
 data/

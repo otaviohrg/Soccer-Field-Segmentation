@@ -4,6 +4,7 @@ dataset_path:
 
 checkpoint_path: checkpoints
 results_path: results.csv
+test_results_path: test_results.csv
 
 # Optional — defaults shown
 seed: 42
@@ -13,3 +14,4 @@ batch_size: 32
 num_epochs_frozen: 10
 num_epochs_unfrozen: 10
 patience: 10
+val_size: 1570
