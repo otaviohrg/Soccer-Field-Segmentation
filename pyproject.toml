@@ -1,0 +1,11 @@
+[project]
+name = "computer-vision-for-segmentation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "segmentation-models-pytorch>=0.5.0",
+    "torch>=2.11.0",
+    "torchmetrics>=1.9.0",
+]

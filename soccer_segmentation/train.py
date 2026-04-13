@@ -1,234 +1,235 @@
-from .models.segnet_resnet18 import segnet_resnet18
-from .models.segnet import segnet
-from .models.unet import Unet
-from .models.segnet_resnet50 import segnet_resnet50
-from .models.unet_resnet18 import unet_resnet18
-from .models.unet_resnet50 import unet_resnet50
-from .models.segnet_mobilenetv3small import segnet_mobilenetsmall
-from .models.segnet_mobilenetv3large import segnet_mobilenetlarge
-from .models.unet_mobilenetv3small import unet_mobilenetv3small
-from .models.unet_mobilenetv3large import unet_mobilenetv3large
-from .models.segnet_vgg16 import segnet_vgg16
-from .models.segnet_vgg19 import segnet_vgg19
-from .models.unet_vgg16 import unet_vgg16
-from .models.unet_vgg19 import unet_vgg19
-from tqdm.keras import TqdmCallback
-import tensorflow as tf
-import numpy as np
-from glob import glob
-from keras.metrics import Recall, Precision, IoU
-from keras.losses import SparseCategoricalCrossentropy
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, CSVLogger, TensorBoard
-import json
+import csv
+import os
+import yaml
+import argparse
+
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from tqdm import tqdm
+from torchmetrics.segmentation import DiceScore
+
+from soccer_segmentation.data.create_dataloader import get_loader
+from soccer_segmentation.utils.checkpoint import load_checkpoint, save_checkpoint
+from soccer_segmentation.utils.early_stopping import EarlyStopper
+from soccer_segmentation.create_model import create_model
 
 
-from .data import load_data
-from .preprocessing import load_image_train, load_image_test
-from .utils.visualize import *
-from definitions import ROOT_DIR
-
-
-def run_freezed(model_name, m):
-    dataset_path = ROOT_DIR + "/data/processed_data/"
-    training_data = "train_images/"
-    val_data = "val_images/"
-    test_data = "test_images/"
-
-    TRAINSET_SIZE = len(glob(dataset_path + training_data + "*"))
-    print(f"The Training Dataset contains {TRAINSET_SIZE} images.")
-
-    VALSET_SIZE = len(glob(dataset_path + val_data + "*"))
-    print(f"The Validation Dataset contains {VALSET_SIZE} images.")
-
-    TESTSET_SIZE = len(glob(dataset_path + test_data + "*"))
-    print(f"The Test Dataset contains {TESTSET_SIZE} images.")
-
-    train_dataset, val_dataset, test_dataset = load_data(dataset_path, training_data, val_data, test_data)
-
-    LR = 1e-4
-    EPOCHS = 50
-    metrics = ['sparse_categorical_accuracy', IoU(num_classes=3, target_class_ids=[1], sparse_y_pred=False), IoU(num_classes=3, target_class_ids=[2], sparse_y_pred=False)]
-    #metrics = ['sparse_categorical_accuracy']
-    BATCH_SIZE = 4
-    BUFFER_SIZE = 1000
-    N_CHANNELS = 3
-    N_CLASSES = 3
-    SEED = 42
-    AUTOTUNE = tf.data.experimental.AUTOTUNE
-
-    dataset = {"train": train_dataset, "val": val_dataset, "test": test_dataset}
-
-    # -- Train Dataset --#
-    dataset['train'] = dataset['train'].map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset['train'] = dataset['train'].shuffle(buffer_size=BUFFER_SIZE, seed=SEED)
-    dataset['train'] = dataset['train'].repeat()
-    dataset['train'] = dataset['train'].batch(BATCH_SIZE)
-    dataset['train'] = dataset['train'].prefetch(buffer_size=AUTOTUNE)
-
-    #-- Validation Dataset --#
-    dataset['val'] = dataset['val'].map(load_image_test)
-    dataset['val'] = dataset['val'].repeat()
-    dataset['val'] = dataset['val'].batch(BATCH_SIZE)
-    dataset['val'] = dataset['val'].prefetch(buffer_size=AUTOTUNE)
-
-    #-- Test Dataset --#
-    dataset['test'] = dataset['test'].map(load_image_test)
-    dataset['test'] = dataset['test'].batch(BATCH_SIZE)
-    dataset['test'] = dataset['test'].prefetch(buffer_size=AUTOTUNE)
-
-    #for layer in m.layers:
-    #    layer.trainable = True
-
-    m.compile(optimizer=tf.keras.optimizers.Adam(LR), loss='sparse_categorical_crossentropy', metrics=metrics)
-
-    callbacks = [
-        ModelCheckpoint(ROOT_DIR + "/files/" + model_name + ".h5"),
-        ModelCheckpoint(ROOT_DIR + "/files/best_" + model_name + ".h5", monitor='val_loss', save_best_only=True, save_weights_only=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3),
-        CSVLogger(ROOT_DIR + "/files/" + model_name + "_data.csv"),
-        TensorBoard(),
-        EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=False),
-        TqdmCallback(verbose=2)
-    ]
-
-    STEPS_PER_EPOCH = TRAINSET_SIZE // BATCH_SIZE
-    VALIDATION_STEPS = VALSET_SIZE // BATCH_SIZE
-
-    #STEPS_PER_EPOCH = 10
-    #VALIDATION_STEPS = 5
-
-    #m.load_weights(ROOT_DIR + "/files/best_" + model_name + ".h5")
-
-    history = m.fit(
-        dataset['train'],
-        initial_epoch=0,
-        epochs=10,
-        validation_data=dataset['val'],
-        steps_per_epoch=STEPS_PER_EPOCH,
-        validation_steps=VALIDATION_STEPS,
-        callbacks=callbacks,
-        verbose=0
+def _batch_metrics(outputs, masks, loss, num_classes):
+    predictions = outputs.argmax(dim=1)
+    device = predictions.device
+    weighted = DiceScore(num_classes=num_classes, average='weighted', input_format='index').to(device)
+    per_class = DiceScore(num_classes=num_classes, average='none', input_format='index').to(device)
+    accuracy = (predictions == masks).float().mean().item()
+    w = weighted(predictions, masks)
+    pc = per_class(predictions, masks)
+    return (
+        loss.item(),
+        0.0 if w.isnan() else w.item(),
+        0.0 if pc[num_classes - 1].isnan() else pc[num_classes - 1].item(),
+        accuracy,
     )
 
-    #history_dict = history.history
-    # Save it under the form of a json file
-    #json.dump(history_dict, open(ROOT_DIR + "/files/segnet_history.txt", 'w'))
 
-    #evaluation = m.evaluate(dataset["test"], return_dict=True)
+def train_one_epoch(model, loader, optimizer, criterion, device, num_classes, desc="Training"):
+    model.train()
+    total_loss = total_dice = total_line_dice = total_acc = 0.0
 
-    #for name, value in evaluation.items():
-    #  print(f"{name}: {value:.4f}")
+    with tqdm(loader, desc=desc, unit="batch", leave=False) as pbar:
+        for images, masks in pbar:
+            images = images.to(device)
+            masks = masks.squeeze(1).to(device)
+
+            outputs = model(images)
+            loss = criterion(outputs, masks)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            batch_loss, batch_dice, batch_line_dice, batch_acc = _batch_metrics(outputs, masks, loss, num_classes)
+            total_loss += batch_loss
+            total_dice += batch_dice
+            total_line_dice += batch_line_dice
+            total_acc += batch_acc
+            pbar.set_postfix(loss=f"{batch_loss:.4f}")
+
+    n = len(loader)
+    return total_loss / n, total_dice / n, total_line_dice / n, total_acc / n
 
 
+def evaluate(model, loader, criterion, device, num_classes):
+    model.eval()
+    total_loss = total_dice = total_line_dice = total_acc = 0.0
 
-def run_unfreezed(model_name, m):
-    dataset_path = ROOT_DIR + "/data/processed_data/"
-    training_data = "train_images/"
-    val_data = "val_images/"
-    test_data = "test_images/"
+    with torch.no_grad():
+        with tqdm(loader, desc="Validation", unit="batch", leave=False) as pbar:
+            for images, masks in pbar:
+                images = images.to(device)
+                masks = masks.squeeze(1).to(device)
 
-    TRAINSET_SIZE = len(glob(dataset_path + training_data + "*"))
-    print(f"The Training Dataset contains {TRAINSET_SIZE} images.")
+                outputs = model(images)
+                loss = criterion(outputs, masks)
 
-    VALSET_SIZE = len(glob(dataset_path + val_data + "*"))
-    print(f"The Validation Dataset contains {VALSET_SIZE} images.")
+                batch_loss, batch_dice, batch_line_dice, batch_acc = _batch_metrics(outputs, masks, loss, num_classes)
+                total_loss += batch_loss
+                total_dice += batch_dice
+                total_line_dice += batch_line_dice
+                total_acc += batch_acc
+                pbar.set_postfix(loss=f"{batch_loss:.4f}")
 
-    TESTSET_SIZE = len(glob(dataset_path + test_data + "*"))
-    print(f"The Test Dataset contains {TESTSET_SIZE} images.")
+    n = len(loader)
+    return total_loss / n, total_dice / n, total_line_dice / n, total_acc / n
 
-    train_dataset, val_dataset, test_dataset = load_data(dataset_path, training_data, val_data, test_data)
 
-    LR = 1e-4
-    EPOCHS = 50
-    metrics = ['sparse_categorical_accuracy', IoU(num_classes=3, target_class_ids=[1], sparse_y_pred=False), IoU(num_classes=3, target_class_ids=[2], sparse_y_pred=False)]
-    #metrics = ['sparse_categorical_accuracy']
-    BATCH_SIZE = 4
-    BUFFER_SIZE = 1000
-    N_CHANNELS = 3
-    N_CLASSES = 3
-    SEED = 42
-    AUTOTUNE = tf.data.experimental.AUTOTUNE
+def train_loop(model, optimizer, criterion, train_loader, val_loader, device,
+               num_classes, num_epochs, checkpoint_path, patience=10, starting_epoch=0):
+    """
+    Runs the training loop for num_epochs, saving a checkpoint only when val_loss improves.
+    Returns a list of per-epoch metric dicts.
+    """
+    es = EarlyStopper(patience=patience) if patience > 0 else None
+    best_val_loss = float('inf')
+    best_metrics = None
+    history = []
 
-    dataset = {"train": train_dataset, "val": val_dataset, "test": test_dataset}
+    for epoch in range(num_epochs):
+        epoch_num = epoch + starting_epoch + 1
+        train_loss, train_dice, train_line_dice, train_acc = train_one_epoch(
+            model, train_loader, optimizer, criterion, device, num_classes,
+            desc=f"Epoch {epoch_num} - Training",
+        )
+        val_loss, val_dice, val_line_dice, val_acc = evaluate(
+            model, val_loader, criterion, device, num_classes,
+        )
 
-    # -- Train Dataset --#
-    dataset['train'] = dataset['train'].map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset['train'] = dataset['train'].shuffle(buffer_size=BUFFER_SIZE, seed=SEED)
-    dataset['train'] = dataset['train'].repeat()
-    dataset['train'] = dataset['train'].batch(BATCH_SIZE)
-    dataset['train'] = dataset['train'].prefetch(buffer_size=AUTOTUNE)
+        improved = val_loss < best_val_loss
+        if improved:
+            best_val_loss = val_loss
+            save_checkpoint(
+                {"state_dict": model.state_dict(), "optimizer": optimizer.state_dict(), "step": epoch_num},
+                checkpoint_path,
+                model.name + ".pth.tar",
+            )
 
-    #-- Validation Dataset --#
-    dataset['val'] = dataset['val'].map(load_image_test)
-    dataset['val'] = dataset['val'].repeat()
-    dataset['val'] = dataset['val'].batch(BATCH_SIZE)
-    dataset['val'] = dataset['val'].prefetch(buffer_size=AUTOTUNE)
+        print(
+            f"Epoch {epoch_num}: "
+            f"Train Loss={train_loss:.4f} Acc={train_acc:.4f} Dice={train_dice:.4f} Line={train_line_dice:.4f} | "
+            f"Val Loss={val_loss:.4f} Acc={val_acc:.4f} Dice={val_dice:.4f} Line={val_line_dice:.4f}"
+            + (" *" if improved else "")
+        )
 
-    #-- Test Dataset --#
-    dataset['test'] = dataset['test'].map(load_image_test)
-    dataset['test'] = dataset['test'].batch(BATCH_SIZE)
-    dataset['test'] = dataset['test'].prefetch(buffer_size=AUTOTUNE)
+        metrics = {
+            "epoch": epoch_num,
+            "train_loss": train_loss, "train_acc": train_acc, "train_dice": train_dice, "train_line_dice": train_line_dice,
+            "val_loss": val_loss, "val_acc": val_acc, "val_dice": val_dice, "val_line_dice": val_line_dice,
+        }
+        history.append(metrics)
 
-    for layer in m.layers:
-        layer.trainable = True
+        if improved:
+            best_metrics = metrics
 
-    m.compile(optimizer=tf.keras.optimizers.Adam(LR), loss='sparse_categorical_crossentropy', metrics=metrics)
+        if es and es.early_stop(val_loss):
+            print("Early stopping triggered.")
+            break
 
-    callbacks = [
-        ModelCheckpoint(ROOT_DIR + "/files/" + model_name + ".h5"),
-        ModelCheckpoint(ROOT_DIR + "/files/best_" + model_name + ".h5", monitor='val_loss', save_best_only=True, save_weights_only=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3),
-        CSVLogger(ROOT_DIR + "/files/" + model_name + "_data.csv"),
-        TensorBoard(),
-        EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=False),
-        TqdmCallback(verbose=2)
-    ]
+    return history, best_metrics
 
-    STEPS_PER_EPOCH = TRAINSET_SIZE // BATCH_SIZE
-    VALIDATION_STEPS = VALSET_SIZE // BATCH_SIZE
 
-    #STEPS_PER_EPOCH = 10
-    #VALIDATION_STEPS = 5
+_CSV_FIELDS = ["model", "epoch",
+               "train_loss", "train_acc", "train_dice", "train_line_dice",
+               "val_loss",   "val_acc",   "val_dice",   "val_line_dice"]
 
-    m.load_weights(ROOT_DIR + "/files/best_" + model_name + ".h5")
 
-    history = m.fit(
-        dataset['train'],
-        initial_epoch=10,
-        epochs=200,
-        validation_data=dataset['val'],
-        steps_per_epoch=STEPS_PER_EPOCH,
-        validation_steps=VALIDATION_STEPS,
-        callbacks=callbacks,
-        verbose=0
+def _log_results(results_path, model_name, best_metrics):
+    row = {"model": model_name, **{k: f"{best_metrics[k]:.6f}" if isinstance(best_metrics[k], float) else best_metrics[k]
+                                   for k in _CSV_FIELDS[1:]}}
+    os.makedirs(os.path.dirname(results_path) or ".", exist_ok=True)
+    write_header = not os.path.isfile(results_path)
+    with open(results_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def train(encoder, decoder, config_path="config.yml", resume=False, eval_only=False):
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    seed = config.get("seed", 42)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.benchmark = True
+
+    num_classes = config.get("num_classes", 3)
+    learning_rate = float(config.get("learning_rate", 3e-4))
+    batch_size = config.get("batch_size", 32)
+    num_epochs_frozen = config.get("num_epochs_frozen", 10)
+    num_epochs_unfrozen = config.get("num_epochs_unfrozen", 10)
+    patience = config.get("patience", 10)
+    checkpoint_path = config["checkpoint_path"]
+    results_path = config.get("results_path", "results.csv")
+
+    model = create_model(encoder, decoder, num_classes, train_encoder=False).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.CrossEntropyLoss()
+
+    if resume or eval_only:
+        step = load_checkpoint(checkpoint_path, model.name + ".pth.tar", model, optimizer)
+        print(f"Loaded checkpoint (step {step})")
+
+    train_loader = get_loader(config["dataset_path"]["train"], shuffle=True,
+                              small_mask=model.small_mask, batch_size=batch_size)
+    val_loader = get_loader(config["dataset_path"]["test"], shuffle=False,
+                            small_mask=model.small_mask, batch_size=batch_size)
+
+    print(f"Model: {model.name} | Device: {device} | "
+          f"Train: {len(train_loader.dataset)} | Val: {len(val_loader.dataset)}")
+
+    if eval_only:
+        loss, avg_dice, line_dice, acc = evaluate(model, val_loader, criterion, device, num_classes)
+        print(f"Val Loss={loss:.4f} | Acc={acc:.4f} | Dice={avg_dice:.4f} | Line Dice={line_dice:.4f}")
+        return
+
+    print("Starting transfer learning (encoder frozen)...")
+    _, best_frozen = train_loop(model, optimizer, criterion, train_loader, val_loader, device,
+                                num_classes, num_epochs_frozen, checkpoint_path, patience=patience,
+                                starting_epoch=0)
+
+    print("Unfreezing encoder...")
+    model.unfreeze()
+
+    print("Continuing training (encoder unfrozen)...")
+    _, best_unfrozen = train_loop(model, optimizer, criterion, train_loader, val_loader, device,
+                                  num_classes, num_epochs_unfrozen, checkpoint_path, patience=patience,
+                                  starting_epoch=num_epochs_frozen)
+
+    best = min((m for m in [best_frozen, best_unfrozen] if m is not None),
+               key=lambda m: m["val_loss"])
+    print(
+        f"\nBest epoch {best['epoch']}: "
+        f"Val Loss={best['val_loss']:.4f} Acc={best['val_acc']:.4f} "
+        f"Dice={best['val_dice']:.4f} Line={best['val_line_dice']:.4f}"
     )
-
-    #history_dict = history.history
-    # Save it under the form of a json file
-    #json.dump(history_dict, open(ROOT_DIR + "/files/segnet_history.txt", 'w'))
-
-    #evaluation = m.evaluate(dataset["test"], return_dict=True)
-
-    #for name, value in evaluation.items():
-    #  print(f"{name}: {value:.4f}")
+    _log_results(results_path, model.name, best)
 
 
-def run():
-    #m = segnet_resnet18(input_shape=(256, 256, 3), n_labels=3)
-    #m = segnet(input_shape=(256, 256, 3), n_labels=3)
-    #m = Unet(input_shape=(256, 256, 3), n_labels=3, dropout=0.2)
-    #m = segnet_resnet50(input_shape=(256, 256, 3), n_labels=3)
-    m = unet_resnet18(input_shape=(256, 256, 3), n_labels=3)
-    #m = unet_resnet50(input_shape=(256, 256, 3), n_labels=3, dropout=0.2)
-    #m = segnet_mobilenetsmall(input_shape=(256, 256, 3), n_labels=3)
-    #m = segnet_mobilenetlarge(input_shape=(256, 256, 3), n_labels=3)
-    #m = unet_mobilenetv3small(input_shape=(256,256,3), n_labels=3)
-    #m = unet_mobilenetv3large(input_shape=(256, 256, 3), n_labels=3)
-    #m = segnet_vgg16(input_shape=(256, 256, 3), n_labels=3)
-    #m = segnet_vgg19(input_shape=(256, 256, 3), n_labels=3)
-    #m = unet_vgg16(input_shape=(256, 256, 3), n_labels=3)
-    #m = unet_vgg19(input_shape=(256, 256, 3), n_labels=3)
-    model_name = "unet_vgg19"
-    run_freezed(model_name, m)
-    run_unfreezed(model_name, m)
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        prog="soccer_segmentation train",
+        description="Train a segmentation model for robot soccer",
+    )
+    parser.add_argument("-e", "--encoder", required=True, help="Encoder backbone")
+    parser.add_argument("-d", "--decoder", required=True, help="Decoder architecture")
+    parser.add_argument("--config", default="config.yml", help="Path to config YAML")
+    parser.add_argument("--resume", action="store_true", help="Load checkpoint before training")
+    parser.add_argument("--eval-only", action="store_true", help="Evaluate on val set, skip training")
+    return parser
 
+
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
+    train(args.encoder, args.decoder, args.config, resume=args.resume, eval_only=args.eval_only)

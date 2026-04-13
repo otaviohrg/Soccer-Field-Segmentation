@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+
+# Config with secrets/local settings
+config.yml
+
+# Virtual environment
+.venv/
+
+# Model checkpoints and training artifacts
+checkpoints/
+results.csv
+
+# Dataset
+data/

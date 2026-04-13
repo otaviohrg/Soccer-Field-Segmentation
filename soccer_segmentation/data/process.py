@@ -24,9 +24,9 @@ for n in range(0, len(onlyfiles)):
 
     # Define a resizing Scale
     # To declare how much to resize
-    resize_width = 256
-    resize_hieght = 256
-    resized_dimensions = (resize_width, resize_hieght)
+    resize_width = 224
+    resize_height = 224
+    resized_dimensions = (resize_width, resize_height)
 
     # Create resized image using the calculated dimensions
     resized_image = cv2.resize(img, resized_dimensions,
