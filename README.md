@@ -15,20 +15,23 @@ The project follows a modular encoder-decoder design. Any supported encoder can 
 | `resnet18` / `resnet34` / `resnet50` / `resnet101` / `resnet152` | ResNet | ImageNet |
 | `vgg11` / `vgg13` / `vgg16` / `vgg19` | VGG | ImageNet |
 | `mobilenetv3small` / `mobilenetv3large` | MobileNetV3 | ImageNet |
-| `default` | From scratch (VGG-style) | — |
+| `default` | Original paper architecture, trained from scratch | — |
 
 ### Decoders
 
 | Name | Description |
 |---|---|
 | `segnet` | SegNet-style decoder using max-pool indices for upsampling |
-| `unet` | U-Net decoder via `segmentation_models_pytorch` with skip connections |
+| `unet` | U-Net decoder with skip connections |
 
 Pretrained encoders are frozen during the first training phase (transfer learning), then unfrozen for fine-tuning.
 
-The `default` encoder/decoder pair trains a full SegNet or U-Net from scratch with no pretrained weights.
+The `default` encoder selects the network architecture as described in the original paper, trained from scratch with no pretrained weights:
 
-> **Note:** The `unet` decoder is not supported with the `default` encoder — use `segnet` instead.
+- `default` + `segnet` — the full SegNet from [Badrinarayanan et al., 2017](https://arxiv.org/abs/1511.00561): a VGG-13-style encoder with 5 pooling stages and a symmetric decoder that reuses the stored max-pooling indices for upsampling.
+- `default` + `unet` — the full U-Net from [Ronneberger et al., 2015](https://arxiv.org/abs/1505.04597): 4 downsampling stages (64→128→256→512 channels), a 1024-channel bottleneck, and 4 upsampling stages with skip connections.
+
+When using a pretrained encoder with `unet`, the decoder is provided by `segmentation_models_pytorch`.
 
 ---
 
@@ -165,9 +168,28 @@ python -m soccer_segmentation test -e resnet18 -d unet
 
 Loads the checkpoint and evaluates on the dataset under `dataset_path.test`.
 
+### Visualize predictions
+
+```bash
+# Single image (with optional ground-truth annotation)
+python -m soccer_segmentation visualize -e resnet18 -d unet --image path/to/image.jpg
+python -m soccer_segmentation visualize -e resnet18 -d unet --image path/to/image.jpg --annotation path/to/mask.png
+
+# Random sample from a dataset directory
+python -m soccer_segmentation visualize -e resnet18 -d unet --dataset data/test
+python -m soccer_segmentation visualize -e resnet18 -d unet --dataset data/test --n-samples 8
+
+# Save figures to disk instead of displaying them
+python -m soccer_segmentation visualize -e resnet18 -d unet --dataset data/test --output-dir viz_output/
+```
+
+Each figure shows the input image alongside the predicted segmentation overlay. When an annotation is available (either via `--annotation` or auto-detected from the dataset), a third panel with the ground-truth overlay is added.
+
+---
+
 ### Custom config path
 
-Both `train` and `test` accept `--config` to point at a non-default config file:
+Both `train`, `test`, and `visualize` accept `--config` to point at a non-default config file:
 
 ```bash
 python -m soccer_segmentation train -e resnet18 -d unet --config my_config.yml
@@ -199,18 +221,19 @@ Training stops early if validation loss does not improve for `patience` consecut
 
 ```
 soccer_segmentation/
-  __main__.py              Entry point (train / test subcommands)
+  __main__.py              Entry point (train / test / visualize subcommands)
   create_model.py          Model factory — maps encoder+decoder names to instances
   supported_models.py      Lists of valid encoder and decoder names
   train.py                 Training loop, evaluation loop, results logging
+  visualize.py             Prediction visualizer — single image or dataset sampling
   data/
     create_dataloader.py   Dataset loading and train/val splitting
     dataloader/
       dataset.py           PyTorch Dataset — image loading and augmentation
   models/
     encoder_decoder.py     EncoderDecoderModel and SMPModel wrappers
-    DefaultSegNet.py       Standalone SegNet (no pretrained encoder)
-    DefaultUNet.py         Standalone U-Net (no pretrained encoder)
+    DefaultSegNet.py       Original SegNet (Badrinarayanan et al., 2017), no pretrained weights
+    DefaultUNet.py         Original U-Net (Ronneberger et al., 2015), no pretrained weights
     encoder/
       resnet.py            ResNet encoder wrapper
       vgg.py               VGG encoder wrapper

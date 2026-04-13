@@ -46,13 +46,13 @@ class DatasetSegmentation(Dataset):
             mask = v2.functional.resize(mask, (112, 112), antialias=True)
 
         # Map grayscale intensity to class indices:
-        #   ~0   (background) → 0
-        #   ~0.5 (field)      → 2
-        #   ~1.0 (lines)      → 1
+        #   ~0   (black, background) → 0
+        #   ~0.5 (gray, lines)       → 1
+        #   ~1.0 (white, field)      → 2
         mask = mask.squeeze(0).numpy()
         mask[mask <= 0.1] = 0
-        mask[mask >= 0.9] = 0.1
-        mask[mask > 0.1] = 0.2
+        mask[mask >= 0.9] = 0.2
+        mask[mask > 0.1] = 0.1
         mask *= 10
         mask = torch.from_numpy(mask).long()
 
